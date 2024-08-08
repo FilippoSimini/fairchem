@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 import subprocess
 from typing import TypeVar
 
@@ -96,6 +97,38 @@ def setup(config) -> None:
             world_size=world_size,
             init_method="env://",
         )
+    elif config["mpi"]:
+        from mpi4py import MPI
+        SIZE = MPI.COMM_WORLD.Get_size()
+        RANK = MPI.COMM_WORLD.Get_rank()
+        LOCAL_RANK = os.environ.get('OMPI_COMM_WORLD_LOCAL_RANK')
+        if LOCAL_RANK is None:
+            LOCAL_RANK = os.environ.get('PMI_LOCAL_RANK')
+        #LOCAL_RANK = os.environ['OMPI_COMM_WORLD_LOCAL_RANK']
+        # pytorch will look for these
+        os.environ['RANK'] = str(RANK)
+        os.environ['WORLD_SIZE'] = str(SIZE)
+        os.environ['LOCAL_RANK'] = str(LOCAL_RANK)
+        # -----------------------------------------------------------
+        # NOTE: Get the hostname of the master node, and broadcast
+        # it to all other nodes It will want the master address too,
+        # which we'll broadcast:
+        # -----------------------------------------------------------
+        MASTER_ADDR = socket.gethostname() if RANK == 0 else None
+        MASTER_ADDR = MPI.COMM_WORLD.bcast(MASTER_ADDR, root=0)
+        os.environ['MASTER_ADDR'] = MASTER_ADDR
+        os.environ['MASTER_PORT'] = "23756"
+        print(f"DDP: Hi from rank {RANK} of {SIZE} with local rank {LOCAL_RANK}. {MASTER_ADDR}")
+        # init
+        dist.init_process_group(
+            backend=config["distributed_backend"],
+            rank=int(RANK),
+            world_size=int(SIZE),
+            init_method='env://',
+            )
+        #if device.type != 'cpu':
+        # DDP: pin GPU to local rank
+        #torch.cuda.set_device(int(LOCAL_RANK))
     else:
         config["local_rank"] = int(os.environ.get("LOCAL_RANK", config["local_rank"]))
         dist.init_process_group(backend="nccl")
@@ -130,8 +163,10 @@ def synchronize() -> None:
 def broadcast(
     tensor: torch.Tensor, src, group=dist.group.WORLD, async_op: bool = False
 ) -> None:
+    logging.info(f"BCAST: group {group} - group.WORLD {dist.group.WORLD} -- src {src} - tensor {tensor}")
     if get_world_size() == 1:
         return
+    group = group if group is not None else dist.group.WORLD
     dist.broadcast(tensor, src, group, async_op)
 
 
@@ -145,6 +180,7 @@ def all_reduce(
         tensor = torch.tensor(data)
     if device is not None:
         tensor = tensor.cuda(device)
+    group = group if group is not None else dist.group.WORLD
     dist.all_reduce(tensor, group=group)
     if average:
         tensor /= get_world_size()
@@ -164,6 +200,7 @@ def all_gather(data, group=dist.group.WORLD, device=None) -> list[torch.Tensor]:
     if device is not None:
         tensor = tensor.cuda(device)
     tensor_list = [tensor.new_zeros(tensor.shape) for _ in range(get_world_size())]
+    group = group if group is not None else dist.group.WORLD
     dist.all_gather(tensor_list, tensor, group=group)
     if not isinstance(data, torch.Tensor):
         result = [tensor.cpu().numpy() for tensor in tensor_list]
@@ -178,5 +215,6 @@ def gather_objects(data: T, group: dist.ProcessGroup = dist.group.WORLD) -> list
         return [data]
 
     output = [None for _ in range(get_world_size())] if is_master() else None
+    group = group if group is not None else dist.group.WORLD
     dist.gather_object(data, output, group=group, dst=0)
     return output

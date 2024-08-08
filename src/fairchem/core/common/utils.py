@@ -452,6 +452,7 @@ def build_config(args, args_override):
     # Submit
     config["submit"] = args.submit
     config["summit"] = args.summit
+    config["mpi"] = args.mpi
     # Distributed
     config["local_rank"] = args.local_rank
     config["distributed_port"] = args.distributed_port

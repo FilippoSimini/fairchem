@@ -82,6 +82,9 @@ class Flags:
             help="Path to a config file with parameter sweeps",
         )
         self.parser.add_argument(
+            "--mpi", action="store_true", help="Use mpi initialization for distributed runs"
+        )
+        self.parser.add_argument(
             "--submit", action="store_true", help="Submit job to cluster"
         )
         self.parser.add_argument(

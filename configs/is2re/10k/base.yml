@@ -14,7 +14,7 @@ dataset:
   val:
     src: data/is2re/all/val_id/data.lmdb
 
-logger: wandb
+logger: tensorboard  #wandb
 
 outputs:
   energy:

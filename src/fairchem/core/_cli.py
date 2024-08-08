@@ -92,6 +92,10 @@ def main():
         log_file = save_experiment_log(args, jobs, configs)
         logging.info(f"Experiment log saved to: {log_file}")
 
+    elif args.mpi:
+        logging.info("Initializing distributed run with mpi")
+        runner_wrapper(args.distributed, config)
+
     else:  # Run locally on a single node, n-processes
         if args.distributed:
             logging.info(f"Running in distributed local mode with {args.num_gpus} ranks")
